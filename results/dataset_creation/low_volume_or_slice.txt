@@ -37,20 +37,20 @@ I1370859 130_S_4294         87                  1                39
 I1516241 082_S_6629         72                  1 ?               24
 I1557905 020_S_6901         66                  1 ?               18
 I1281553 116_S_6100         46                  0 ?                46
- I989132 041_S_6314         45                  0 duplicat              45
-I1142370 022_S_6069         33                  0 duplicat           33
- I272229 018_S_4399         25                  0 duplicat               25
- I322438 002_S_0685         15                  0 duplicat               15
- I969038 070_S_6229          2                  0 duplicat                2
-I1011355 019_S_4293          1                  0 duplicat                1
- I274420 012_S_4026          1                  0 duplicat                1
-I1075356 013_S_4268          1                  0 duplicat                1
-I1469851 073_S_6952          1                  0 duplicat                1
-I1617489 073_S_2182          1                  0 duplicat                1
-I1609773 073_S_7082          1                  0 duplicat                1
-I1469813 073_S_6925          1                  0 duplicat                1
-I1469828 073_S_6929          1                  0 duplicat               1
-I1469713 073_S_6907          1                  0 duplicat                1
-I1469147 073_S_6673          1                  0 duplicat                 1
-I1469778 073_S_6669          1                  0 duplicat                1
-I1469761 073_S_6670          1                  0 duplicat                1
+ I989132 041_S_6314         45                  0 duplicate              45
+I1142370 022_S_6069         33                  0 duplicate           33
+ I272229 018_S_4399         25                  0 duplicate               25
+ I322438 002_S_0685         15                  0 duplicate               15
+ I969038 070_S_6229          2                  0 duplicate                2
+I1011355 019_S_4293          1                  0 duplicate                1
+ I274420 012_S_4026          1                  0 duplicate                1
+I1075356 013_S_4268          1                  0 duplicate                1
+I1469851 073_S_6952          1                  0 duplicate                1
+I1617489 073_S_2182          1                  0 duplicate                1
+I1609773 073_S_7082          1                  0 duplicate                1
+I1469813 073_S_6925          1                  0 duplicate                1
+I1469828 073_S_6929          1                  0 duplicate               1
+I1469713 073_S_6907          1                  0 duplicate                1
+I1469147 073_S_6673          1                  0 duplicate                 1
+I1469778 073_S_6669          1                  0 duplicate                1
+I1469761 073_S_6670          1                  0 duplicate                1
