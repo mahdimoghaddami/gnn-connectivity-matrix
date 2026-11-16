@@ -12,6 +12,6 @@ data
 src/playground
 
 freesurfer_license.txt
-slurm_logs/
-extracted_freesurfer_stats/
-sessions_list.tsv
+# slurm_logs/
+# extracted_freesurfer_stats/
+# sessions_list.tsv
