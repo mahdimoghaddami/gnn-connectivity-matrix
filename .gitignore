@@ -10,3 +10,5 @@ wheels/
 .venv
 data
 src/playground
+
+freesurfer_license.txt
