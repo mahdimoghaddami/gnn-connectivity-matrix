@@ -8,8 +8,8 @@ wheels/
 
 # Virtual environments
 .venv
-data
-src/playground
+data/
+src/playground/
 
 freesurfer_license.txt
 # slurm_logs/

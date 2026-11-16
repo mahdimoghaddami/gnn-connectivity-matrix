@@ -65,6 +65,7 @@ singularity run --cleanenv \
   "${SIF_IMAGE}" \
   /data /out participant \
   --participant-label "${SUB}" \
+  --session-label "${SES}" \
   --bids-filter-file /work/bids_filter.json \
   --skip-bids-validation \
   --fs-subjects-dir /fsdir \
