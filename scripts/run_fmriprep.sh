@@ -9,6 +9,8 @@
 # For the full run after the 2-session pilot test, replace line above with e.g. #SBATCH --array=3-3218%200
 #SBATCH --output=/projects/adresearch/moghaddami/gnn-connectivity-matrix/slurm_logs/fmriprep_%A_%a.out
 #SBATCH --error=/projects/adresearch/moghaddami/gnn-connectivity-matrix/slurm_logs/fmriprep_%A_%a.err
+#SBATCH --mail-user=moghaddami@oakland.edu
+#SBATCH --mail-type=END,FAIL
 
 # 1. Load Singularity 3.9.6
 module purge
