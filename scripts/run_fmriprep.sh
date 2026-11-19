@@ -5,7 +5,7 @@
 #SBATCH --cpus-per-task=4
 #SBATCH --mem=19G
 #SBATCH --time=12:00:00
-#SBATCH --array=3-3218%120
+#SBATCH --array=3-3218%150
 # For the full run after the 2-session pilot test, replace line above with e.g. #SBATCH --array=3-3218%200
 #SBATCH --output=/projects/adresearch/moghaddami/gnn-connectivity-matrix/slurm_logs/fmriprep_%A_%a.out
 #SBATCH --error=/projects/adresearch/moghaddami/gnn-connectivity-matrix/slurm_logs/fmriprep_%A_%a.err
