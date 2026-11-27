@@ -9,4 +9,4 @@
 #SBATCH --error=/projects/adresearch/moghaddami/gnn-connectivity-matrix/slurm_logs/fc_extract_%j.err
 
 cd /projects/adresearch/moghaddami/gnn-connectivity-matrix
-python src/gnn_connectivity_matrix/09-extract-fc-matrices.py --workers 16
+uv run src/gnn_connectivity_matrix/09-extract-fc-matrices.py --workers 16
