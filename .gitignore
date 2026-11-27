@@ -14,5 +14,6 @@ src/playground/
 freesurfer_license.txt
 slurm_logs/
 extracted_freesurfer_stats/
+extracted_fc_matrices/
 
-results/fmriprep_html_reports_only.tar.gz
+results/fmriprep_html_reports_only
