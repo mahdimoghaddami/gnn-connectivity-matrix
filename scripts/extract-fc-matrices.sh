@@ -9,4 +9,6 @@
 #SBATCH --error=/projects/adresearch/moghaddami/gnn-connectivity-matrix/slurm_logs/fc_extract_%j.err
 
 cd /projects/adresearch/moghaddami/gnn-connectivity-matrix
-uv run src/gnn_connectivity_matrix/09-extract-fc-matrices.py --workers 16
+ATLAS="${1:-schaefer200_subcort14}"
+shift || true
+uv run src/gnn_connectivity_matrix/09-extract-fc-matrices.py --atlas "$ATLAS" --workers 16 "$@"

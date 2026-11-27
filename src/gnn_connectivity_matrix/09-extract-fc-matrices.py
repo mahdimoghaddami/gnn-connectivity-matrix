@@ -4,27 +4,31 @@ Extract denoised ROI BOLD time series, 2D functional connectivity matrices
 (Pearson and Ledoit-Wolf partial correlation), and regional ALFF/fALFF from
 fMRIPrep MNI152NLin2009cAsym:res-2 outputs on the Matilda HPC cluster.
 
-Default Atlas: `schaefer200_subcort14` (214 whole-brain ROIs)
-- Labels 1..200:   Schaefer 2018 200-parcel, 7-network cortical parcellation (2 mm MNI)
-- Labels 201..214: 14 bilateral subcortical gray-matter nuclei from Harvard-Oxford
-                   (sub-maxprob-thr25-2mm: Thalamus, Caudate, Putamen, Pallidum,
-                    Hippocampus, Amygdala, Accumbens), matched directly to
-                   FreeSurfer aseg.stats StructName identifiers.
+Supported Atlases:
+- `schaefer100_subcort14` / `schaefer200_subcort14` (default) / `schaefer400_subcort14`:
+  Schaefer 2018 7-network cortical parcellation (2 mm MNI) combined with
+  14 bilateral subcortical gray-matter nuclei from Harvard-Oxford
+  (Thalamus, Caudate, Putamen, Pallidum, Hippocampus, Amygdala, Accumbens),
+  matched directly to FreeSurfer `aseg.stats` StructName identifiers.
+- `destrieux148` (148 cortical ROIs) / `destrieux148_subcort14` (162 whole-brain ROIs):
+  Destrieux 2009 lateralized cortical parcellation (`aparc.a2009s`, Medial_wall
+  excluded) with optional 14 Harvard-Oxford subcortical nuclei, mapped 1-to-1 to
+  FreeSurfer `lh/rh.aparc.a2009s.stats` and `aseg.stats` StructName identifiers.
 
 Recommended Matilda HPC Workflow
 --------------------------------
 1. Login node (once, with internet access, before submitting Slurm jobs):
-   python src/gnn_connectivity_matrix/09-extract-fc-matrices.py --prepare-atlas-only
+   python src/gnn_connectivity_matrix/09-extract-fc-matrices.py --atlas destrieux148_subcort14 --prepare-atlas-only
 
 2a. Single multi-core Slurm job (~3,215 sessions in ~45-90 min on 16-32 CPUs):
-   python src/gnn_connectivity_matrix/09-extract-fc-matrices.py --workers 16
+   python src/gnn_connectivity_matrix/09-extract-fc-matrices.py --atlas destrieux148_subcort14 --workers 16
 
 2b. Or Slurm array sharding (e.g., 16 shards x 4 CPUs):
    python src/gnn_connectivity_matrix/09-extract-fc-matrices.py \
-       --workers 4 --shard-index ${SLURM_ARRAY_TASK_ID} --num-shards 16
+       --atlas destrieux148_subcort14 --workers 4 --shard-index ${SLURM_ARRAY_TASK_ID} --num-shards 16
 
 3. Archive extracted .npz matrices for fast transfer to local PC:
-   tar -cf extracted_fc_matrices_schaefer200_subcort14.tar extracted_fc_matrices/schaefer200_subcort14/
+   tar -cf extracted_fc_matrices_destrieux148_subcort14.tar extracted_fc_matrices/destrieux148_subcort14/
 """
 
 from __future__ import annotations
@@ -65,10 +69,12 @@ DEFAULT_DERIVATIVES_DIR = Path("/scratch/users/moghaddami/fmriprep-output/deriva
 DEFAULT_OUTPUT_ROOT = DEFAULT_REPO_DIR / "extracted_fc_matrices"
 DEFAULT_ATLAS_CACHE_DIR = DEFAULT_REPO_DIR / "data" / "atlases"
 
-SUPPORTED_ATLASES: dict[str, int] = {
-    "schaefer100_subcort14": 100,
-    "schaefer200_subcort14": 200,
-    "schaefer400_subcort14": 400,
+SUPPORTED_ATLASES: dict[str, dict[str, Any]] = {
+    "schaefer100_subcort14": {"family": "schaefer", "n_cortical": 100, "include_subcortical": True},
+    "schaefer200_subcort14": {"family": "schaefer", "n_cortical": 200, "include_subcortical": True},
+    "schaefer400_subcort14": {"family": "schaefer", "n_cortical": 400, "include_subcortical": True},
+    "destrieux148": {"family": "destrieux", "n_cortical": 148, "include_subcortical": False},
+    "destrieux148_subcort14": {"family": "destrieux", "n_cortical": 148, "include_subcortical": True},
 }
 
 # Canonical 14 bilateral subcortical gray-matter nuclei in Harvard-Oxford
@@ -204,6 +210,112 @@ def _fetch_schaefer_raw(n_cortical: int, cache_dir: Path) -> tuple[np.ndarray, n
         return data, img.affine, labels
 
 
+def _parse_destrieux_lut(bunch: Any) -> list[tuple[int, str]]:
+    """Extract (integer_label, name) pairs from Nilearn Destrieux atlas across versions."""
+    lut = getattr(bunch, "lut", None)
+    if isinstance(lut, pd.DataFrame) and {"index", "name"}.issubset(lut.columns):
+        return [(int(idx), _decode_label(name)) for idx, name in zip(lut["index"], lut["name"])]
+
+    labels_obj = getattr(bunch, "labels", None)
+    if isinstance(labels_obj, pd.DataFrame) and {"index", "name"}.issubset(labels_obj.columns):
+        return [
+            (int(idx), _decode_label(name))
+            for idx, name in zip(labels_obj["index"], labels_obj["name"])
+        ]
+    if labels_obj is None:
+        raise RuntimeError("Destrieux atlas bunch contains neither a 'lut' DataFrame nor 'labels'.")
+
+    entries: list[tuple[int, str]] = []
+    for pos, entry in enumerate(labels_obj):
+        if not isinstance(entry, (str, bytes)) and hasattr(entry, "__len__") and len(entry) >= 2:
+            entries.append((int(entry[0]), _decode_label(entry[1])))
+        else:
+            entries.append((pos, _decode_label(entry)))
+    return entries
+
+
+def _fetch_destrieux148_raw(cache_dir: Path) -> tuple[np.ndarray, np.ndarray, list[dict[str, str]]]:
+    """Fetch lateralized Destrieux 2009 atlas, exclude non-cortical labels, and remap to 1..148."""
+    nilearn_dir = cache_dir / "nilearn_data"
+    nilearn_dir.mkdir(parents=True, exist_ok=True)
+    try:
+        from nilearn import datasets
+
+        bunch = datasets.fetch_atlas_destrieux_2009(
+            lateralized=True,
+            data_dir=str(nilearn_dir),
+            verbose=0,
+        )
+    except ImportError as exc:
+        raise RuntimeError(
+            "nilearn is required to fetch Destrieux 2009 atlas when not yet cached. "
+            "Install nilearn (`pip install nilearn`) or pre-build the atlas cache with --prepare-atlas-only."
+        ) from exc
+
+    img = bunch.maps if isinstance(bunch.maps, nib.Nifti1Image) else nib.load(str(bunch.maps))
+    raw_data = np.asarray(img.dataobj, dtype=np.int32)
+
+    ignored_norm = {
+        "background",
+        "unknown",
+        "medial wall",
+        "l medial wall",
+        "r medial wall",
+        "lh medial wall",
+        "rh medial wall",
+    }
+    kept: list[tuple[int, str]] = []
+    for orig_idx, raw_name in _parse_destrieux_lut(bunch):
+        norm = _normalize_label(raw_name)
+        if orig_idx <= 0 or norm in ignored_norm or norm.endswith("medial wall"):
+            continue
+        kept.append((orig_idx, raw_name))
+
+    if len(kept) != 148:
+        raise RuntimeError(
+            f"Expected 148 Destrieux cortical ROIs after excluding Medial_wall/Background, "
+            f"got {len(kept)} (sample: {kept[:5]})."
+        )
+
+    max_label = max(int(raw_data.max()), max(idx for idx, _ in kept))
+    remap = np.zeros(max_label + 1, dtype=np.int32)
+    for new_idx, (orig_idx, _) in enumerate(kept, start=1):
+        remap[orig_idx] = new_idx
+    clipped = np.clip(raw_data, 0, remap.size - 1)
+    remapped = np.where((raw_data >= 0) & (raw_data < remap.size), remap[clipped], 0).astype(
+        np.int32, copy=False
+    )
+
+    parsed_meta: list[dict[str, str]] = []
+    for _, raw_name in kept:
+        if raw_name.startswith(("L ", "L_")):
+            hemi = "LH"
+            fs_struct_name = raw_name[2:].strip()
+        elif raw_name.startswith(("R ", "R_")):
+            hemi = "RH"
+            fs_struct_name = raw_name[2:].strip()
+        elif raw_name.lower().startswith("lh_"):
+            hemi = "LH"
+            fs_struct_name = raw_name[3:].strip()
+        elif raw_name.lower().startswith("rh_"):
+            hemi = "RH"
+            fs_struct_name = raw_name[3:].strip()
+        else:
+            hemi = "Unknown"
+            fs_struct_name = raw_name.strip()
+
+        parsed_meta.append(
+            {
+                "roi_name": f"{hemi}_{fs_struct_name}",
+                "hemisphere": hemi,
+                "network": "Cortical",
+                "fs_struct_name": fs_struct_name,
+            }
+        )
+
+    return remapped, img.affine, parsed_meta
+
+
 def _fetch_harvard_oxford_subcort(cache_dir: Path) -> tuple[np.ndarray, np.ndarray, list[str]]:
     """Fetch Harvard-Oxford sub-maxprob-thr25-2mm NIfTI + 0-indexed label list."""
     nilearn_dir = cache_dir / "nilearn_data"
@@ -233,7 +345,7 @@ def build_or_load_combined_atlas(
 ) -> tuple[Path, Path, pd.DataFrame]:
     """
     Build (if not already cached) and return paths + metadata DataFrame for the
-    combined Schaefer cortical + 14 Harvard-Oxford subcortical 2mm MNI atlas.
+    requested cortical or combined cortical + 14 Harvard-Oxford subcortical atlas.
     """
     if atlas_name not in SUPPORTED_ATLASES:
         raise ValueError(f"Unsupported atlas '{atlas_name}'. Choose from: {list(SUPPORTED_ATLASES)}")
@@ -246,38 +358,50 @@ def build_or_load_combined_atlas(
         meta_df = pd.read_csv(atlas_tsv_path, sep="\t")
         return atlas_nii_path, atlas_tsv_path, meta_df
 
-    n_cortical = SUPPORTED_ATLASES[atlas_name]
-    schaefer_data, schaefer_affine, schaefer_labels = _fetch_schaefer_raw(n_cortical, atlas_cache_dir)
-    ho_data, ho_affine, ho_labels = _fetch_harvard_oxford_subcort(atlas_cache_dir)
+    cfg = SUPPORTED_ATLASES[atlas_name]
+    family: str = cfg["family"]
+    n_cortical: int = cfg["n_cortical"]
+    include_subcortical: bool = cfg["include_subcortical"]
 
-    ho_on_schaefer = resample_labels_nearest(
-        ho_data,
-        ho_affine,
-        target_shape=schaefer_data.shape[:3],
-        target_affine=schaefer_affine,
-    )
+    if family == "schaefer":
+        cort_data, cort_affine, schaefer_labels = _fetch_schaefer_raw(n_cortical, atlas_cache_dir)
+        atlas_source = f"Schaefer2018_{n_cortical}Parcels_7Networks"
+        cort_meta: list[dict[str, str]] = []
+        for raw_name in schaefer_labels:
+            hemi, network = _parse_schaefer_label(raw_name)
+            cort_meta.append(
+                {
+                    "roi_name": raw_name,
+                    "hemisphere": hemi,
+                    "network": network,
+                    "fs_struct_name": "",
+                }
+            )
+    elif family == "destrieux":
+        cort_data, cort_affine, cort_meta = _fetch_destrieux148_raw(atlas_cache_dir)
+        atlas_source = "Destrieux2009_aparc_a2009s_lateralized"
+    else:
+        raise ValueError(f"Unsupported atlas family '{family}' for '{atlas_name}'.")
 
-    ho_norm_to_idx = {_normalize_label(lbl): idx for idx, lbl in enumerate(ho_labels)}
-
-    combined = np.zeros(schaefer_data.shape[:3], dtype=np.int32)
-    cortical_mask = (schaefer_data >= 1) & (schaefer_data <= n_cortical)
-    combined[cortical_mask] = schaefer_data[cortical_mask]
+    combined = np.zeros(cort_data.shape[:3], dtype=np.int32)
+    cortical_mask = (cort_data >= 1) & (cort_data <= n_cortical)
+    combined[cortical_mask] = cort_data[cortical_mask]
 
     rows: list[dict[str, Any]] = []
     for roi_idx in range(1, n_cortical + 1):
-        roi_name = schaefer_labels[roi_idx - 1]
-        hemi, network = _parse_schaefer_label(roi_name)
+        entry = cort_meta[roi_idx - 1]
         ijk = np.argwhere(combined == roi_idx)
         if ijk.size == 0:
-            raise RuntimeError(f"Empty cortical parcel {roi_idx} ({roi_name}) in atlas.")
-        xyz = nib.affines.apply_affine(schaefer_affine, ijk.mean(axis=0))
+            raise RuntimeError(f"Empty cortical parcel {roi_idx} ({entry['roi_name']}) in atlas.")
+        xyz = nib.affines.apply_affine(cort_affine, ijk.mean(axis=0))
         rows.append(
             {
                 "roi_index": roi_idx,
-                "roi_name": roi_name,
-                "atlas_source": f"Schaefer2018_{n_cortical}Parcels_7Networks",
-                "hemisphere": hemi,
-                "network": network,
+                "roi_name": entry["roi_name"],
+                "atlas_source": atlas_source,
+                "hemisphere": entry["hemisphere"],
+                "network": entry["network"],
+                "fs_struct_name": entry["fs_struct_name"],
                 "aseg_struct_name": "",
                 "mni_x": round(float(xyz[0]), 2),
                 "mni_y": round(float(xyz[1]), 2),
@@ -286,37 +410,48 @@ def build_or_load_combined_atlas(
             }
         )
 
-    for offset, (ho_key, hemi, aseg_name) in enumerate(SUBCORTICAL_SPEC, start=1):
-        roi_idx = n_cortical + offset
-        if ho_key not in ho_norm_to_idx:
-            raise RuntimeError(
-                f"Expected subcortical label '{ho_key}' not found in Harvard-Oxford labels: {ho_labels}"
-            )
-        ho_label_id = ho_norm_to_idx[ho_key]
-        # Keep cortical ribbon labels intact if a deep nucleus boundary touches cortex.
-        sub_mask = (ho_on_schaefer == ho_label_id) & (combined == 0)
-        if not np.any(sub_mask):
-            raise RuntimeError(f"Empty subcortical ROI {roi_idx} ({aseg_name}) after cortical masking.")
-        combined[sub_mask] = roi_idx
-        ijk = np.argwhere(combined == roi_idx)
-        xyz = nib.affines.apply_affine(schaefer_affine, ijk.mean(axis=0))
-        rows.append(
-            {
-                "roi_index": roi_idx,
-                "roi_name": f"Subcort_{aseg_name}",
-                "atlas_source": "HarvardOxford_sub_maxprob_thr25_2mm",
-                "hemisphere": hemi,
-                "network": "Subcortical",
-                "aseg_struct_name": aseg_name,
-                "mni_x": round(float(xyz[0]), 2),
-                "mni_y": round(float(xyz[1]), 2),
-                "mni_z": round(float(xyz[2]), 2),
-                "template_voxel_count": int(ijk.shape[0]),
-            }
+    if include_subcortical:
+        ho_data, ho_affine, ho_labels = _fetch_harvard_oxford_subcort(atlas_cache_dir)
+        ho_on_cort = resample_labels_nearest(
+            ho_data,
+            ho_affine,
+            target_shape=cort_data.shape[:3],
+            target_affine=cort_affine,
         )
+        ho_norm_to_idx = {_normalize_label(lbl): idx for idx, lbl in enumerate(ho_labels)}
+
+        for offset, (ho_key, hemi, aseg_name) in enumerate(SUBCORTICAL_SPEC, start=1):
+            roi_idx = n_cortical + offset
+            if ho_key not in ho_norm_to_idx:
+                raise RuntimeError(
+                    f"Expected subcortical label '{ho_key}' not found in Harvard-Oxford labels: {ho_labels}"
+                )
+            ho_label_id = ho_norm_to_idx[ho_key]
+            # Keep cortical ribbon labels intact if a deep nucleus boundary touches cortex.
+            sub_mask = (ho_on_cort == ho_label_id) & (combined == 0)
+            if not np.any(sub_mask):
+                raise RuntimeError(f"Empty subcortical ROI {roi_idx} ({aseg_name}) after cortical masking.")
+            combined[sub_mask] = roi_idx
+            ijk = np.argwhere(combined == roi_idx)
+            xyz = nib.affines.apply_affine(cort_affine, ijk.mean(axis=0))
+            rows.append(
+                {
+                    "roi_index": roi_idx,
+                    "roi_name": f"Subcort_{aseg_name}",
+                    "atlas_source": "HarvardOxford_sub_maxprob_thr25_2mm",
+                    "hemisphere": hemi,
+                    "network": "Subcortical",
+                    "fs_struct_name": aseg_name,
+                    "aseg_struct_name": aseg_name,
+                    "mni_x": round(float(xyz[0]), 2),
+                    "mni_y": round(float(xyz[1]), 2),
+                    "mni_z": round(float(xyz[2]), 2),
+                    "template_voxel_count": int(ijk.shape[0]),
+                }
+            )
 
     meta_df = pd.DataFrame(rows)
-    out_img = nib.Nifti1Image(combined.astype(np.int16), schaefer_affine)
+    out_img = nib.Nifti1Image(combined.astype(np.int16), cort_affine)
     out_img.set_data_dtype(np.int16)
 
     tmp_nii = atlas_cache_dir / f".{atlas_name}_2mm.tmp.nii.gz"
@@ -922,7 +1057,10 @@ def parse_args() -> argparse.Namespace:
         "--atlas",
         choices=sorted(SUPPORTED_ATLASES),
         default="schaefer200_subcort14",
-        help="Whole-brain cortical+subcortical parcellation atlas (default: schaefer200_subcort14).",
+        help=(
+            "Parcellation atlas: schaefer{100,200,400}_subcort14, destrieux148, "
+            "or destrieux148_subcort14 (default: schaefer200_subcort14)."
+        ),
     )
     parser.add_argument(
         "--atlas-cache-dir",
