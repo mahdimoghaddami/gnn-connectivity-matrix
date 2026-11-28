@@ -17,3 +17,4 @@ extracted_freesurfer_stats/
 extracted_fc_matrices/
 
 results/fmriprep_html_reports_only
+results/freesurfer_features/
